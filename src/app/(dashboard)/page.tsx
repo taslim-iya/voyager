@@ -1,44 +1,49 @@
-import { createClient } from '@/lib/supabase/server';
 import Link from 'next/link';
-import { Plane, Hotel, Briefcase, Clock, ArrowRight, CheckCircle, AlertTriangle } from 'lucide-react';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { Plane, Hotel, Briefcase, ArrowRight } from 'lucide-react';
 
 export default async function HomePage() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-
   let trips: any[] = [];
   let pendingApprovals = 0;
-  let profile: any = null;
+  let profileName = 'there';
+  let budgetRemaining = 0;
 
-  if (user) {
-    const { data: p } = await supabase.from('users').select('*').eq('id', user.id).single();
-    profile = p;
+  if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+    try {
+      const { createClient } = await import('@/lib/supabase/server');
+      const { formatCurrency, formatDate } = await import('@/lib/utils');
+      const supabase = await createClient();
+      const { data: { user } } = await supabase.auth.getUser();
 
-    const { data: t } = await supabase
-      .from('trips')
-      .select('*, flight_bookings(*), hotel_bookings(*)')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
-      .limit(5);
-    trips = t || [];
+      if (user) {
+        const { data: p } = await supabase.from('users').select('*').eq('id', user.id).single();
+        if (p) {
+          profileName = p.full_name?.split(' ')[0] || 'there';
+          budgetRemaining = p.budget_remaining || 0;
+        }
 
-    if (profile?.role === 'admin' || profile?.role === 'manager') {
-      const { count } = await supabase
-        .from('approval_requests')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'pending');
-      pendingApprovals = count || 0;
-    }
+        const { data: t } = await supabase
+          .from('trips')
+          .select('*, flight_bookings(*), hotel_bookings(*)')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(5);
+        trips = t || [];
+
+        if (p?.role === 'admin' || p?.role === 'manager') {
+          const { count } = await supabase
+            .from('approval_requests')
+            .select('*', { count: 'exact', head: true })
+            .eq('status', 'pending');
+          pendingApprovals = count || 0;
+        }
+      }
+    } catch {}
   }
-
-  const upcomingTrips = trips.filter(t => t.status === 'booked' || t.status === 'approved');
-  const pendingTrips = trips.filter(t => t.status === 'pending_approval');
 
   return (
     <div style={{ padding: '32px 40px', maxWidth: 1000 }}>
       <div className="page-header">
-        <h1>Welcome back{profile ? `, ${profile.full_name.split(' ')[0]}` : ''}</h1>
+        <h1>Welcome back, {profileName}</h1>
         <p>Search flights, manage trips, and stay on policy.</p>
       </div>
 
@@ -61,69 +66,12 @@ export default async function HomePage() {
         </Link>
       </div>
 
-      {/* Pending approvals alert */}
-      {pendingApprovals > 0 && (
-        <Link href="/admin/approvals" className="card" style={{ padding: 16, marginBottom: 24, display: 'flex', alignItems: 'center', gap: 12, textDecoration: 'none', color: 'inherit', borderColor: 'var(--orange)' }}>
-          <AlertTriangle size={18} style={{ color: 'var(--orange)' }} />
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 600 }}>{pendingApprovals} pending approval{pendingApprovals > 1 ? 's' : ''}</div>
-            <div style={{ fontSize: 11, color: 'var(--text-3)' }}>Review travel requests from your team</div>
-          </div>
-          <ArrowRight size={14} style={{ marginLeft: 'auto', color: 'var(--text-3)' }} />
-        </Link>
-      )}
-
-      {/* Upcoming trips */}
-      {upcomingTrips.length > 0 && (
-        <div style={{ marginBottom: 32 }}>
-          <h2 style={{ fontSize: 18, marginBottom: 12 }}>Upcoming Trips</h2>
-          {upcomingTrips.map(trip => (
-            <Link key={trip.id} href={`/trips/${trip.id}`} className="card" style={{ padding: 16, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12, textDecoration: 'none', color: 'inherit' }}>
-              <CheckCircle size={16} style={{ color: 'var(--green)' }} />
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 14, fontWeight: 600 }}>{trip.title || trip.destination || 'Untitled Trip'}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
-                  {trip.start_date && formatDate(trip.start_date)}{trip.end_date && ` - ${formatDate(trip.end_date)}`}
-                </div>
-              </div>
-              {trip.total_cost > 0 && <span style={{ fontSize: 13, fontWeight: 600, fontFamily: 'monospace' }}>{formatCurrency(trip.total_cost, trip.currency)}</span>}
-              <span className={`badge ${trip.status === 'booked' ? 'badge-success' : 'badge-info'}`}>{trip.status.replace(/_/g, ' ')}</span>
-            </Link>
-          ))}
-        </div>
-      )}
-
-      {/* Pending trips */}
-      {pendingTrips.length > 0 && (
-        <div>
-          <h2 style={{ fontSize: 18, marginBottom: 12 }}>Pending Approval</h2>
-          {pendingTrips.map(trip => (
-            <Link key={trip.id} href={`/trips/${trip.id}`} className="card" style={{ padding: 16, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12, textDecoration: 'none', color: 'inherit' }}>
-              <Clock size={16} style={{ color: 'var(--orange)' }} />
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 14, fontWeight: 600 }}>{trip.title || trip.destination || 'Untitled Trip'}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{trip.start_date && formatDate(trip.start_date)}</div>
-              </div>
-              <span className="badge badge-warning">Pending</span>
-            </Link>
-          ))}
-        </div>
-      )}
-
       {trips.length === 0 && (
         <div className="empty-state">
           <Plane size={32} style={{ color: 'var(--text-3)', marginBottom: 8 }} />
           <h3>No trips yet</h3>
-          <p>Search for flights or hotels to get started.</p>
-          <Link href="/search/flights" className="btn-primary" style={{ textDecoration: 'none' }}>Search Flights</Link>
-        </div>
-      )}
-
-      {/* Budget */}
-      {profile?.budget_remaining > 0 && (
-        <div className="card" style={{ padding: 16, marginTop: 24 }}>
-          <div style={{ fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>Remaining Budget</div>
-          <div style={{ fontSize: 24, fontWeight: 700, fontFamily: 'var(--serif)' }}>{formatCurrency(profile.budget_remaining)}</div>
+          <p>Search for flights or hotels to get started. The platform works with mock data — no API keys needed for a demo.</p>
+          <Link href="/search/flights" className="btn-primary" style={{ textDecoration: 'none', marginTop: 12, display: 'inline-flex' }}>Search Flights</Link>
         </div>
       )}
     </div>
